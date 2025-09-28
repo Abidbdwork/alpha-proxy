@@ -14,14 +14,17 @@ async-trait = "0.1"
 
 # Networking
 hyper = { version = "0.14", features = ["full"] }
+http = "0.2"
 tokio-rustls = "0.24"
 rustls = "0.21"
 socket2 = "0.5"
+bcrypt = "0.15"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.7"
+base64 = "0.21"
 
 # Logging and metrics
 tracing = "0.1"
@@ -35,9 +38,16 @@ anyhow = "1.0"
 # Authentication
 argon2 = "0.5"
 jsonwebtoken = "8.3"
+mongodb = { version = "2.7", features = ["tokio-runtime"] }
+cached = "0.44"
 
 # Configuration
 config = "0.13"
+
+# Web framework for admin API
+axum = { version = "0.6", features = ["headers"] }
+tower = "0.4"
+tower-http = { version = "0.4", features = ["cors", "trace"] }
 
 # CLI
 clap = { version = "4.4", features = ["derive"] }

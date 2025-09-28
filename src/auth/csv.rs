@@ -1,4 +1,7 @@
-use crate::auth::types::{AuthProvider, Credentials, Session, User};
+use crate::auth::{
+    password::{hash_password, verify_password},
+    types::{AuthProvider, Credentials, Session, User},
+};
 use crate::core::error::AuthError;
 use async_trait::async_trait;
 use std::{
@@ -10,11 +13,15 @@ use std::{
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 
+use crate::auth::rate_limit::RateLimiter;
+use std::time::Duration;
+
 pub struct CsvAuthProvider {
     file_path: PathBuf,
     users: RwLock<Vec<User>>,
     last_reload: RwLock<SystemTime>,
     reload_interval: u64,
+    rate_limiter: RateLimiter,
 }
 
 impl CsvAuthProvider {
@@ -24,6 +31,7 @@ impl CsvAuthProvider {
             users: RwLock::new(Vec::new()),
             last_reload: RwLock::new(SystemTime::now()),
             reload_interval,
+            rate_limiter: RateLimiter::new(3, Duration::from_secs(60)), // 3 attempts per minute
         }
     }
 
@@ -82,9 +90,10 @@ impl CsvAuthProvider {
             });
         }
 
+        let user_count = users.len();
         *self.users.write().await = users;
         *self.last_reload.write().await = SystemTime::now();
-        info!("Successfully reloaded {} users from CSV", users.len());
+        info!("Successfully reloaded {} users from CSV", user_count);
         Ok(())
     }
 }
@@ -105,6 +114,11 @@ impl AuthProvider for CsvAuthProvider {
     }
 
     async fn authenticate(&self, credentials: &Credentials) -> Result<User, AuthError> {
+        // Check rate limit before authentication
+        if !self.rate_limiter.check_rate_limit(&credentials.username).await {
+            return Err(AuthError::TooManyAttempts);
+        }
+
         self.reload_if_needed().await?;
         let users = self.users.read().await;
 
@@ -119,8 +133,8 @@ impl AuthProvider for CsvAuthProvider {
                 }
             }
 
-            // In a real implementation, you would use proper password hashing
-            if user.password_hash == credentials.password {
+            if verify_password(&credentials.password, &user.password_hash)
+                .map_err(|e| AuthError::BackendError(e.to_string()))? {
                 Ok(user.clone())
             } else {
                 Err(AuthError::InvalidCredentials)
@@ -132,10 +146,21 @@ impl AuthProvider for CsvAuthProvider {
 
     async fn update_user(&mut self, user: &User) -> Result<(), AuthError> {
         let mut users = self.users.write().await;
-        if let Some(index) = users.iter().position(|u| u.username == user.username) {
-            users[index] = user.clone();
+        
+        // Hash the password if it's not already hashed (doesn't start with $2b$)
+        let hashed_user = if !user.password_hash.starts_with("$2b$") {
+            let mut new_user = user.clone();
+            new_user.password_hash = hash_password(&user.password_hash)
+                .map_err(|e| AuthError::BackendError(e.to_string()))?;
+            new_user
         } else {
-            users.push(user.clone());
+            user.clone()
+        };
+        
+        if let Some(index) = users.iter().position(|u| u.username == user.username) {
+            users[index] = hashed_user;
+        } else {
+            users.push(hashed_user);
         }
 
         // Write all users back to the CSV file
@@ -241,7 +266,7 @@ mod tests {
 
     async fn create_test_provider() -> (CsvAuthProvider, NamedTempFile) {
         let file = NamedTempFile::new().unwrap();
-        let provider = CsvAuthProvider::new(file.path().to_owned(), 60);
+        let mut provider = CsvAuthProvider::new(file.path().to_owned(), 60);
         provider.init().await.unwrap();
         (provider, file)
     }

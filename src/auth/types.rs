@@ -14,7 +14,7 @@ pub struct Credentials {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub username: String,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing, skip_deserializing)]
     pub password_hash: String,
     pub enabled: bool,
     pub expires_at: Option<SystemTime>,

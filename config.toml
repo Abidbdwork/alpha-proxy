@@ -1,0 +1,66 @@
+# Alpha Proxy Server Configuration
+
+[listen]
+# Enable SOCKS5 proxy on port 1080
+socks5_addr = "127.0.0.1:1080"
+# Enable HTTP proxy on port 8080
+http_addr = "127.0.0.1:8080"
+# HTTPS proxy uses TLS and requires TLS configuration
+https_addr = "127.0.0.1:8443"
+
+[auth]
+# Authentication backend (csv, mongodb)
+backend = "csv"
+# Path to CSV file or MongoDB connection string
+source = "users.csv"
+# How often to reload authentication data (in seconds)
+reload_interval = 300
+
+[metrics]
+# Prometheus metrics endpoint
+prometheus_addr = "127.0.0.1:9090"
+# Enable detailed per-user metrics
+user_metrics = true
+# Enable detailed per-IP metrics
+ip_metrics = true
+
+[admin]
+# Admin API endpoint
+api_addr = "127.0.0.1:8081"
+# Secret for JWT token generation
+jwt_secret = "change-me-in-production"
+
+[rate_limit]
+# Global rate limit in requests per second
+global_rps = 10000
+# Per-user rate limit in requests per second
+user_rps = 100
+# Per-IP rate limit in requests per second
+ip_rps = 50
+# Maximum concurrent connections per user
+max_concurrent_per_user = 100
+
+[tls]
+# Enable automatic certificate management with Let's Encrypt
+enable_acme = true
+# Domains for which to obtain certificates
+domains = ["proxy.example.com"]
+# Manual certificate paths (used if ACME is disabled)
+cert_path = "certs/server.crt"
+key_path = "certs/server.key"
+
+[ip_rotation]
+# IP rotation strategy (sequential, random, round_robin, least_used)
+strategy = "round_robin"
+# List of available IPv4 addresses
+ipv4_pool = [
+    "192.168.1.10",
+    "192.168.1.11",
+    "192.168.1.12"
+]
+# List of IPv6 subnets for random address generation
+ipv6_subnets = [
+    "2001:db8::/64"
+]
+# How long to keep client->outbound IP mapping (seconds)
+sticky_session_ttl = 3600

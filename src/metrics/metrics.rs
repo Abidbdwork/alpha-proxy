@@ -63,6 +63,7 @@ lazy_static! {
 }
 
 /// Represents a connection metrics tracker
+#[derive(Clone)]
 pub struct ConnectionMetrics {
     protocol: String,
     username: String,
@@ -154,8 +155,6 @@ mod tests {
 
     #[test]
     fn test_connection_metrics() {
-        let registry = Registry::new();
-
         let metrics = ConnectionMetrics::new("socks5", "testuser");
 
         // Test connection counting
@@ -214,8 +213,8 @@ mod tests {
                 .get()
         );
 
-        // Verify metrics are collected in the registry
-        let metric_families = registry.gather();
+        // Verify metrics are registered with default registry
+        let metric_families = prometheus::default_registry().gather();
         assert!(!metric_families.is_empty());
 
         // Drop the metrics and verify counters are updated

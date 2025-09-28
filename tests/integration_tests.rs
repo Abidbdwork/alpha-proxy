@@ -57,7 +57,7 @@ impl AuthProvider for MockAuthProvider {
 
     async fn validate_session(
         &self,
-        _session: &crate::auth::Session,
+        _session: &alpha_proxy::auth::Session,
     ) -> Result<bool, AuthError> {
         Ok(self.allow_auth)
     }
@@ -68,13 +68,9 @@ async fn create_test_proxy(auth_required: bool) -> (Socks5Proxy, SocketAddr) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let auth_provider = if auth_required {
-        Some(Arc::new(MockAuthProvider { allow_auth: true }))
-    } else {
-        None
-    };
+    let auth_provider = Arc::new(MockAuthProvider { allow_auth: true }) as Arc<dyn AuthProvider>;
 
-    let proxy = Socks5Proxy::new(Some(addr), auth_provider);
+    let proxy = Socks5Proxy::new(Some(addr), if auth_required { Some(auth_provider) } else { None });
 
     (proxy, addr)
 }
@@ -89,6 +85,9 @@ async fn test_proxy_connection_without_auth() {
         proxy.listen(listener).await.unwrap();
     });
 
+    // Wait for server to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
     // Connect to proxy
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -98,11 +97,12 @@ async fn test_proxy_connection_without_auth() {
         1,             // Number of auth methods
         0x00,         // NO AUTH
     ];
-    stream.try_write(&handshake).unwrap();
+    use tokio::io::{AsyncWriteExt, AsyncReadExt};
+    stream.write_all(&handshake).await.unwrap();
 
     // Read response
     let mut response = vec![0u8; 2];
-    stream.try_read(&mut response).unwrap();
+    stream.read_exact(&mut response).await.unwrap();
 
     assert_eq!(response[0], SOCKS5_VERSION);
     assert_eq!(response[1], 0x00); // NO AUTH selected
@@ -118,6 +118,9 @@ async fn test_proxy_connection_with_auth() {
         proxy.listen(listener).await.unwrap();
     });
 
+    // Wait for server to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
     // Connect to proxy
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -127,11 +130,12 @@ async fn test_proxy_connection_with_auth() {
         1,             // Number of auth methods
         0x02,         // USERNAME/PASSWORD
     ];
-    stream.try_write(&handshake).unwrap();
+    use tokio::io::{AsyncWriteExt, AsyncReadExt};
+    stream.write_all(&handshake).await.unwrap();
 
     // Read response
     let mut response = vec![0u8; 2];
-    stream.try_read(&mut response).unwrap();
+    stream.read_exact(&mut response).await.unwrap();
 
     assert_eq!(response[0], SOCKS5_VERSION);
     assert_eq!(response[1], 0x02); // USERNAME/PASSWORD selected
@@ -144,11 +148,11 @@ async fn test_proxy_connection_with_auth() {
         8,          // Password length
         b't', b'e', b's', b't', b'p', b'a', b's', b's', // Password
     ];
-    stream.try_write(&auth_request).unwrap();
+    stream.write_all(&auth_request).await.unwrap();
 
     // Read auth response
     let mut auth_response = vec![0u8; 2];
-    stream.try_read(&mut auth_response).unwrap();
+    stream.read_exact(&mut auth_response).await.unwrap();
 
     assert_eq!(auth_response[0], 0x01);
     assert_eq!(auth_response[1], 0x00); // Success
@@ -217,7 +221,7 @@ async fn test_auth_provider() {
         bandwidth_limit: None,
         allowed_ips: vec![],
     };
-    let session = crate::auth::Session {
+    let session = alpha_proxy::auth::Session {
         user,
         created_at: SystemTime::now(),
         last_activity: SystemTime::now(),

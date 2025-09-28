@@ -100,15 +100,16 @@ pub struct IpRotationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IpRotationStrategy {
     /// Randomly select IP for each connection
     Random,
-    /// Use consistent hashing for sticky sessions
-    Sticky,
-    /// Use weighted rotation based on connection count
-    Weighted,
-    /// Use static IP based on index
-    Static,
+    /// Sequentially select next IP from the pool
+    Sequential,
+    /// Rotate through IPs in a circular fashion
+    RoundRobin,
+    /// Select IP with least active connections
+    LeastUsed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

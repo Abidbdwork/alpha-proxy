@@ -73,24 +73,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_server() {
-        // Start server on random port
-        let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-        let mut server = MetricsServer::new(addr);
-        
-        // Get the actual bound address
-        let bound_addr = addr;
+        use tokio::net::TcpListener;
 
-        // Start server in background
+        // Bind a TCP listener to get a random port
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);  // Release the port
+
+        // Start server
+        let mut server = MetricsServer::new(addr);
         tokio::spawn(async move {
             server.start().await.unwrap();
         });
 
         // Wait for server to start
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         // Test metrics endpoint
         let client = Client::new();
-        let uri = format!("http://{}/metrics", bound_addr)
+        let uri = format!("http://{}/metrics", addr)
             .parse()
             .unwrap();
 

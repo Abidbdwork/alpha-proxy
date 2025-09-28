@@ -44,6 +44,9 @@ pub enum AuthError {
     #[error("Too many connections")]
     TooManyConnections,
 
+    #[error("Too many authentication attempts")]
+    TooManyAttempts,
+
     #[error("Backend error: {0}")]
     BackendError(String),
 

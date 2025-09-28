@@ -5,7 +5,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, BytesMut};
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -14,6 +14,7 @@ use tracing::{debug, error, info, warn};
 
 use super::protocol::*;
 
+#[derive(Clone)]
 pub struct Socks5Proxy {
     listen_addr: Option<SocketAddr>,
     auth_provider: Option<Arc<dyn AuthProvider>>,
@@ -296,7 +297,7 @@ impl ProxyProtocol for Socks5Proxy {
                 Ok((stream, addr)) => {
                     debug!("New connection from {}", addr);
                     let proxy = self.clone();
-                    tokio::spawn(async move {
+                    let _ = tokio::spawn(async move {
                         if let Err(e) = proxy.handle_connection(stream).await {
                             error!("Connection error: {}", e);
                         }
