@@ -212,6 +212,8 @@ impl Socks5Proxy {
                 // Send failure response
                 let reply = match e.kind() {
                     std::io::ErrorKind::ConnectionRefused => REPLY_CONNECTION_REFUSED,
+                    std::io::ErrorKind::NetworkUnreachable => REPLY_NETWORK_UNREACHABLE,
+                    std::io::ErrorKind::HostUnreachable => REPLY_HOST_UNREACHABLE,
                     std::io::ErrorKind::AddrNotAvailable => REPLY_ADDRESS_TYPE_NOT_SUPPORTED,
                     std::io::ErrorKind::TimedOut => REPLY_TTL_EXPIRED,
                     _ => REPLY_GENERAL_FAILURE,
@@ -319,8 +321,15 @@ impl ProxyProtocol for Socks5Proxy {
 mod tests {
     use super::*;
     use crate::auth::Credentials;
+    use crate::protocols::socks::protocol::{
+        ADDR_TYPE_IPV4, COMMAND_CONNECT, REPLY_HOST_UNREACHABLE, REPLY_NETWORK_UNREACHABLE,
+        REPLY_TTL_EXPIRED, SOCKS5_VERSION,
+    };
     use std::net::Ipv4Addr;
-    use tokio::net::TcpListener;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
 
     struct MockAuthProvider;
 
@@ -410,5 +419,55 @@ mod tests {
         // Test connection
         let result = TcpStream::connect(bound_addr).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_unreachable_host_reply() {
+        // Set up the proxy
+        let proxy_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+        let listener = TcpListener::bind(proxy_addr).await.unwrap();
+        let bound_addr = listener.local_addr().unwrap();
+        let proxy = Socks5Proxy::new(Some(bound_addr), None);
+        tokio::spawn(async move {
+            proxy.listen(listener).await.unwrap();
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Connect client to proxy
+        let mut client_stream = TcpStream::connect(bound_addr).await.unwrap();
+
+        // Handshake: Version 5, 1 auth method, no auth
+        client_stream.write_all(&[SOCKS5_VERSION, 1, AUTH_METHOD_NONE]).await.unwrap();
+        let mut response = [0u8; 2];
+        client_stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(response, [SOCKS5_VERSION, AUTH_METHOD_NONE]);
+
+        // Request: Connect to an unreachable address (TEST-NET-2)
+        let unreachable_addr = Ipv4Addr::new(198, 51, 100, 1);
+        let mut request = BytesMut::with_capacity(10);
+        request.put_u8(SOCKS5_VERSION);
+        request.put_u8(COMMAND_CONNECT);
+        request.put_u8(0x00); // Reserved
+        request.put_u8(ADDR_TYPE_IPV4);
+        request.put_slice(&unreachable_addr.octets());
+        request.put_u16(12345); // Port
+        client_stream.write_all(&request).await.unwrap();
+
+        // Read response and assert correct error code
+        let mut response = [0u8; 10];
+        client_stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(response[0], SOCKS5_VERSION);
+        // This is the key assertion for the bug. We expect an unreachable error,
+        // but the exact code can vary by OS (e.g., HostUnreachable,
+        // NetworkUnreachable, or even TimedOut). We accept any of these as valid.
+        let reply_code = response[1];
+        assert!(
+            reply_code == REPLY_HOST_UNREACHABLE
+                || reply_code == REPLY_NETWORK_UNREACHABLE
+                || reply_code == REPLY_TTL_EXPIRED,
+            "Unexpected reply code: {}",
+            reply_code
+        );
+        assert_eq!(response[3], ADDR_TYPE_IPV4);
     }
 }
